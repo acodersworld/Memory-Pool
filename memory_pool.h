@@ -24,7 +24,7 @@
 */
 
 #pragma once
-#include <stddef.h> // size_t 
+#include <stddef.h>
 //#define MEMORY_POOL_USE_CANARY
 
 class MemoryPool
@@ -104,8 +104,9 @@ private:
 		LinkNode* pPrev;
 	};
 
-	struct ChunkFreeHeader : ChunkHeader
+	struct ChunkFreeHeader
 	{
+		ChunkHeader header;
 		LinkNode node;
 	};
 
@@ -122,9 +123,9 @@ private:
 		AllocAlignment = SIZE_SZ * 2,
 		AllocAlignmentMask = AllocAlignment - 1,
 		MinAllocSize = AllocAlignment + sizeof(ChunkHeader) + sizeof(ChunkFooter),
-		LargestSmallBinBlockSize = 128,
+		LargestSmallBinBlockSize = 32 * SIZE_SZ,
 		SmallBinByteSizeSpacing = AllocAlignment,
-		nSmallBins = (LargestSmallBinBlockSize/SmallBinByteSizeSpacing) - (MinAllocSize/8) + 1,
+		nSmallBins = (LargestSmallBinBlockSize/SmallBinByteSizeSpacing) - (MinAllocSize/SmallBinByteSizeSpacing) + 1,
 
 		nSortedLargeBins = 2,
 		nLargeBins = 32,

@@ -73,10 +73,10 @@ MemoryPool::MemoryPool( size_t poolSize )
 	{
 		ChunkFreeHeader* pHeader = (ChunkFreeHeader*)((ChunkFooter*)pPool + 1);
 		ChunkFooter* pFooter = (ChunkFooter*)( (char*)pHeader + chunkSize - sizeof(ChunkFooter) );
-		pHeader->pPool = this;
+		pHeader->header.pPool = this;
 
 		LinkNode* pBin = m_largeBins + Aux::getLargeBinIdx(chunkSize);
-		pHeader->chunkSize = chunkSize;
+		pHeader->header.chunkSize = chunkSize;
 		pHeader->node.pNext = NULL;
 		pHeader->node.pPrev = pBin;
 		pFooter->chunkSize = chunkSize;
@@ -133,7 +133,7 @@ bool MemoryPool::isEmpty()
 
 	if( pHeader )
 	{
-		return ( size == Aux::getChunkSize( pHeader->chunkSize ) );
+		return ( size == Aux::getChunkSize( pHeader->header.chunkSize ) );
 	}
 	return false;
 }
@@ -152,7 +152,6 @@ void* MemoryPool::alloc( size_t size )
 		size = AllocAlignment;
 	}
 	size = (size + sizeof(ChunkHeader) + sizeof(ChunkFooter) + AllocAlignmentMask) & ~AllocAlignmentMask;
-
 	if( size <= LargestSmallBinBlockSize )
 	{
 		int iBin = Aux::getSmallBinIdx(size);
@@ -162,7 +161,7 @@ void* MemoryPool::alloc( size_t size )
 		{
 			ChunkFreeHeader* pHeader = Aux::getHeader( getSmallBin(iBin)->pNext );
 			assert( pHeader );
-			assert( pHeader->chunkSize >= size );
+			assert( pHeader->header.chunkSize >= size );
 			return internalAllocChunk(pHeader, size);
 		}
 		return allocFromLargeBin(0, size);
@@ -208,7 +207,7 @@ void* MemoryPool::allocFromLargeBin( int iFirstBin, internal_size_t size )
 			ChunkFreeHeader* pCandidate = Aux::getHeader( pBin->pNext );
 			while( pCandidate )
 			{
-				if( pCandidate->chunkSize >= size )
+				if( pCandidate->header.chunkSize >= size )
 				{
 					return internalAllocChunk(pCandidate, size);
 				}
@@ -236,19 +235,19 @@ void* MemoryPool::internalAllocChunk( ChunkFreeHeader* pHeader, internal_size_t 
 	}
 #endif
 	
-	const internal_size_t spaceLeft = Aux::getChunkSize(pHeader->chunkSize) - sizeIncludingHeaderFooter;
+	const internal_size_t spaceLeft = Aux::getChunkSize(pHeader->header.chunkSize) - sizeIncludingHeaderFooter;
 	LinkNode* pPrev = pHeader->node.pPrev;
 	Aux::unlinkNode(&pHeader->node);
 	if( spaceLeft > MinAllocSize )
 	{
 		// split chunks
-		ChunkFooter* pFooter = (ChunkFooter*)((char*)pHeader + Aux::getChunkSize(pHeader->chunkSize) - sizeof(ChunkFooter));
+		ChunkFooter* pFooter = (ChunkFooter*)((char*)pHeader + Aux::getChunkSize(pHeader->header.chunkSize) - sizeof(ChunkFooter));
 		ChunkFooter* pNewFooter = (ChunkFooter*)((char*)pHeader + sizeIncludingHeaderFooter - sizeof(ChunkFooter));
 		ChunkFreeHeader* pNewHeader = (ChunkFreeHeader*)(pNewFooter+1);
-		pHeader->chunkSize = sizeIncludingHeaderFooter;
+		pHeader->header.chunkSize = sizeIncludingHeaderFooter;
 		pNewFooter->chunkSize = sizeIncludingHeaderFooter;
 		
-		pNewHeader->chunkSize = spaceLeft;
+		pNewHeader->header.chunkSize = spaceLeft;
 		pFooter->chunkSize = spaceLeft;
 #ifdef MEMORY_POOL_USE_CANARY
 		Aux::canaryInitAllocHeader(pHeader);
@@ -272,7 +271,7 @@ void* MemoryPool::internalAllocChunk( ChunkFreeHeader* pHeader, internal_size_t 
 				if( iBin < nSortedLargeBins )
 				{
 					// if pNode->pPrev == NULL, then we have reached the list head
-					while( pNode->pPrev && Aux::getHeader(pNode)->chunkSize > spaceLeft )
+					while( pNode->pPrev && Aux::getHeader(pNode)->header.chunkSize > spaceLeft )
 					{
 						pNode = pNode->pPrev;
 					}
@@ -286,7 +285,7 @@ void* MemoryPool::internalAllocChunk( ChunkFreeHeader* pHeader, internal_size_t 
 					for(;;)
 					{
 						ChunkFreeHeader* pNext = Aux::getHeader( pNode->pNext );
-						if( pNext && (pNext->chunkSize < spaceLeft) )
+						if( pNext && (pNext->header.chunkSize < spaceLeft) )
 						{
 							pNode = &pNext->node;
 						}
@@ -310,12 +309,12 @@ void* MemoryPool::internalAllocChunk( ChunkFreeHeader* pHeader, internal_size_t 
 #endif
 	}
 
-	internal_size_t size = Aux::getChunkSize(pHeader->chunkSize);
+	internal_size_t size = Aux::getChunkSize(pHeader->header.chunkSize);
 	ChunkFooter* pFooter = (ChunkFooter*)((char*)pHeader + size - sizeof(ChunkFooter));
 	Aux::setChunkInUse( size );
-	pHeader->chunkSize = size;
+	pHeader->header.chunkSize = size;
 	pFooter->chunkSize = size;
-	pHeader->pPool = this;
+	pHeader->header.pPool = this;
 	void* ptr = (void*)( (ChunkHeader*)pHeader + 1);
 #ifdef MEMORY_POOL_TRASH_ON_ALLOCATE_CHAR
 	memset( ptr, MEMORY_POOL_TRASH_ON_ALLOCATE_CHAR, (char*)pFooter - (char*)ptr);
@@ -383,9 +382,9 @@ void* MemoryPool::internalAllocChunkBack( ChunkFooter* pFooter, internal_size_t 
 		purpose of this function */
 		internal_size_t chunkSizeInUse = chunkSize;
 		Aux::setChunkInUse( chunkSizeInUse );
-		pHeader->chunkSize = chunkSizeInUse;
+		pHeader->header.chunkSize = chunkSizeInUse;
 		pFooter->chunkSize = chunkSizeInUse;
-		pHeader->pPool = this;
+		pHeader->header.pPool = this;
 #ifdef MEMORY_POOL_USE_CANARY
 		Aux::canaryInitAllocHeader(pHeader);
 		Aux::canaryInitAllocFooter(pFooter);
@@ -400,16 +399,16 @@ void* MemoryPool::internalAllocChunkBack( ChunkFooter* pFooter, internal_size_t 
 	{
 		ChunkFreeHeader* pNewHeader = (ChunkFreeHeader*)((char*)pFooter - sizeIncludingHeaderFooter + sizeof(ChunkFooter) );
 		ChunkFooter* pNewFooter = (ChunkFooter*)((char*)pNewHeader - sizeof(ChunkFooter));
-		pHeader->chunkSize = spaceLeft;
+		pHeader->header.chunkSize = spaceLeft;
 		pNewFooter->chunkSize = spaceLeft;
-		pHeader->pPool = this;
+		pHeader->header.pPool = this;
 	
 		{
 			internal_size_t chunkSizeInUse = sizeIncludingHeaderFooter;
 			Aux::setChunkInUse( chunkSizeInUse );
-			pNewHeader->chunkSize = chunkSizeInUse;
+			pNewHeader->header.chunkSize = chunkSizeInUse;
 			pFooter->chunkSize = chunkSizeInUse;
-			pNewHeader->pPool = this;
+			pNewHeader->header.pPool = this;
 		}
 
 #ifdef MEMORY_POOL_USE_CANARY
@@ -427,7 +426,7 @@ void* MemoryPool::internalAllocChunkBack( ChunkFooter* pFooter, internal_size_t 
 		{
 			if( iBin < nSortedLargeBins )
 			{
-				while( pNode->pPrev && Aux::getHeader(pNode)->chunkSize > spaceLeft )
+				while( pNode->pPrev && Aux::getHeader(pNode)->header.chunkSize > spaceLeft )
 				{
 					pNode = pNode->pPrev;
 				}
@@ -441,7 +440,7 @@ void* MemoryPool::internalAllocChunkBack( ChunkFooter* pFooter, internal_size_t 
 				for(;;)
 				{
 					ChunkFreeHeader* pNext = Aux::getHeader(pNode->pNext);
-					if( pNext && (pNext->chunkSize < spaceLeft) )
+					if( pNext && (pNext->header.chunkSize < spaceLeft) )
 					{
 						pNode = &pNext->node;
 					}
@@ -507,7 +506,7 @@ int MemoryPool::Aux::getLargeBinIdx(internal_size_t sz)
 
 int MemoryPool::Aux::getSmallBinIdx( internal_size_t size )
 {
-	return (size / SmallBinByteSizeSpacing) - (MinAllocSize/8);
+	return (size / SmallBinByteSizeSpacing) - (MinAllocSize / SmallBinByteSizeSpacing);
 }
 
 bool MemoryPool::Aux::isChunkInUse( internal_size_t chunkSize )
@@ -571,7 +570,7 @@ MemoryPool::ChunkFreeHeader* MemoryPool::Aux::getHeader( LinkNode* pNode )
 {
 	if( pNode )
 	{
-		const ptrdiff_t offset = (ptrdiff_t)&((ChunkFreeHeader*)0)->node;
+		const ptrdiff_t offset = offsetof(ChunkFreeHeader, node);
 		return (ChunkFreeHeader*)( (char*)pNode - offset );
 	}
 	return NULL;
@@ -585,14 +584,14 @@ void MemoryPool::free( void* p )
 	}
 
 	ChunkFreeHeader* pHeader = (ChunkFreeHeader*)((char*)p - sizeof(ChunkHeader));
-	internal_size_t size = Aux::getChunkSize( pHeader->chunkSize );
+	internal_size_t size = Aux::getChunkSize( pHeader->header.chunkSize );
 	ChunkFooter* pFooter = (ChunkFooter*)((char*)pHeader + size - sizeof(ChunkFooter));
 	
 #ifdef MEMORY_POOL_USE_CANARY
 	Aux::checkAllocHeader(pHeader);
 	Aux::checkAllocFooter(pFooter);
 #endif
-	MemoryPool* pPool = pHeader->pPool;
+	MemoryPool* pPool = pHeader->header.pPool;
 	
 #ifdef MEMORY_POOL_TRASH_ON_FREE_CHAR
 	memset( pHeader, MEMORY_POOL_TRASH_ON_FREE_CHAR, (char*)(pFooter + 1) - (char*)pHeader );
@@ -619,10 +618,10 @@ void MemoryPool::free( void* p )
 
 		{
 			ChunkFreeHeader* pNextHeader = (ChunkFreeHeader*)(((ChunkFooter*)pFooter) + 1);
-			if( !Aux::isChunkInUse(pNextHeader->chunkSize) )
+			if( !Aux::isChunkInUse(pNextHeader->header.chunkSize) )
 			{
-				ChunkFooter* pNextFooter = (ChunkFooter*)((char*)pNextHeader + pNextHeader->chunkSize - sizeof(ChunkFooter));
-				const internal_size_t sz = Aux::getChunkSize(pNextHeader->chunkSize);
+				ChunkFooter* pNextFooter = (ChunkFooter*)((char*)pNextHeader + pNextHeader->header.chunkSize - sizeof(ChunkFooter));
+				const internal_size_t sz = Aux::getChunkSize(pNextHeader->header.chunkSize);
 				size += sz;
 #ifdef MEMORY_POOL_USE_CANARY
 				Aux::checkFreeHeader(pNextHeader);
@@ -637,7 +636,7 @@ void MemoryPool::free( void* p )
 		Aux::canaryInitFreeHeader(pHeader);
 		Aux::canaryInitFreeFooter(pFooter);
 #endif
-		pHeader->chunkSize = size;
+		pHeader->header.chunkSize = size;
 		pFooter->chunkSize = size;
 
 		const int iBin = Aux::getLargeBinIdx(size);
@@ -647,7 +646,7 @@ void MemoryPool::free( void* p )
 			for(;;)
 			{
 				ChunkFreeHeader* pNext = Aux::getHeader( pList->pNext );
-				if( pNext && (pNext->chunkSize < size) )
+				if( pNext && (pNext->header.chunkSize < size) )
 				{
 					pList = &pNext->node;
 				}
@@ -668,7 +667,7 @@ void MemoryPool::free( void* p )
 		const int iBin = Aux::getSmallBinIdx(size);
 		Aux::setChunkFreeSmallSized(size);
 		Aux::setChunkInUse(size);
-		pHeader->chunkSize = size;
+		pHeader->header.chunkSize = size;
 		pFooter->chunkSize = size;
 
 		Aux::linkAfterNode( pPool->getSmallBin(iBin), &pHeader->node );
@@ -707,11 +706,11 @@ void MemoryPool::consolidateSmallBin( int iBin )
 	pBin->pNext->pPrev = &tmpBin;
 	pBin->pNext = NULL;
 
-	const internal_size_t smallSize = Aux::getChunkSize( Aux::getHeader(tmpBin.pNext)->chunkSize );
+	const internal_size_t smallSize = Aux::getChunkSize( Aux::getHeader(tmpBin.pNext)->header.chunkSize );
 	while( tmpBin.pNext )
 	{
 		ChunkFreeHeader* pHeader = (ChunkFreeHeader*)Aux::getHeader( tmpBin.pNext );
-		internal_size_t size = Aux::getChunkSize( pHeader->chunkSize );
+		internal_size_t size = Aux::getChunkSize( pHeader->header.chunkSize );
 		ChunkFooter* pFooter = (ChunkFooter*)((char*)pHeader + smallSize - sizeof(ChunkFooter));
 #ifdef MEMORY_POOL_USE_CANARY
 		Aux::checkFreeHeader(pHeader);
@@ -739,10 +738,10 @@ void MemoryPool::consolidateSmallBin( int iBin )
 		{
 			/* scan from the footer until we find an allocated chunk */
 			ChunkFreeHeader* pNextHeader = (ChunkFreeHeader*)(((ChunkFooter*)pFooter) + 1);
-			while( Aux::isFreeChunk( pNextHeader->chunkSize ) )
+			while( Aux::isFreeChunk( pNextHeader->header.chunkSize ) )
 			{
-				ChunkFooter* pNextFooter = (ChunkFooter*)((char*)pNextHeader + Aux::getChunkSize(pNextHeader->chunkSize) - sizeof(ChunkFooter));
-				const internal_size_t sz = Aux::getChunkSize(pNextHeader->chunkSize);
+				ChunkFooter* pNextFooter = (ChunkFooter*)((char*)pNextHeader + Aux::getChunkSize(pNextHeader->header.chunkSize) - sizeof(ChunkFooter));
+				const internal_size_t sz = Aux::getChunkSize(pNextHeader->header.chunkSize);
 				size += sz;
 #ifdef MEMORY_POOL_USE_CANARY
 				Aux::checkFreeHeader(pNextHeader);
@@ -760,7 +759,7 @@ void MemoryPool::consolidateSmallBin( int iBin )
 			Aux::canaryInitFreeHeader(pHeader);
 			Aux::canaryInitFreeFooter(pFooter);
 #endif
-			pHeader->chunkSize = size;
+			pHeader->header.chunkSize = size;
 			pFooter->chunkSize = size;
 
 			const int iBin = Aux::getLargeBinIdx(size);
@@ -770,7 +769,7 @@ void MemoryPool::consolidateSmallBin( int iBin )
 				for(;;)
 				{
 					LinkNode* pNext = pList->pNext;
-					if( pNext && (Aux::getHeader(pNext)->chunkSize < size) )
+					if( pNext && (Aux::getHeader(pNext)->header.chunkSize < size) )
 					{
 						pList = pList->pNext;
 					}
@@ -791,7 +790,7 @@ void MemoryPool::consolidateSmallBin( int iBin )
 			const int iBin = Aux::getSmallBinIdx(size);
 			Aux::setChunkFreeSmallSized(size);
 			Aux::setChunkInUse(size);
-			pHeader->chunkSize = size;
+			pHeader->header.chunkSize = size;
 			pFooter->chunkSize = size;
 
 			Aux::linkAfterNode( getSmallBin(iBin), &pHeader->node );
